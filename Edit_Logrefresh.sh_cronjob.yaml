@@ -1,0 +1,43 @@
+- name: Disable logrefresh.sh logs
+  hosts: "{{ reachable_hosts | default('all') }}"
+  become: yes
+  gather_facts: no
+
+  tasks:
+    - name: Remove logrefresh.sh.log cron job
+      cron:
+        name: Logrefresh each day
+        state: absent
+      when: ansible_facts['mstr_cloud_provider'] == "AWS"
+
+    - name: Create a new logrefresh.sh crontab entry
+      cron:
+        name: Logrefresh each day with no logs
+        user: root
+        minute: "*/5"
+        hour: "*"
+        day: "*"
+        month: "*"
+        weekday: "*"
+        job: "/root/linux_admin_script/logrefresh.sh >> /dev/null 2>&1"
+      notify:
+        - Restart cron
+      when: ansible_facts['mstr_cloud_provider'] == "AWS"
+
+    - name: Check if text is present in crontab
+      shell: grep -q 'logrefresh.sh >> /dev/null 2>&1' /var/spool/cron/root
+      register: cron_present
+      changed_when: false
+      when: ansible_facts['mstr_cloud_provider'] == "AWS"
+
+    - name: Create mstr_logrefresh_sh_logs_disabled fact
+      set_fact:
+        mstr_logrefresh_sh_logs_disabled: "{{ cron_present.rc == 0 }}"
+        cacheable: yes
+      when: ansible_facts['mstr_cloud_provider'] == "AWS"
+
+  handlers:
+    - name: Restart cron
+      systemd:
+        name: crond
+        state: restarted
